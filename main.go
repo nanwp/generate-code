@@ -1,6 +1,8 @@
 package main
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"math/rand"
@@ -9,54 +11,25 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
+	"github.com/xuri/excelize/v2"
 )
 
-// func main() {
-// 	db, err := connectDB()
-// 	if err != nil {
-// 		log.Fatalln("Failed to connect to database:", err)
-// 	}
-// 	defer db.Close()
+const (
+	dbDriver = "postgres"
+)
 
-// 	batchSize := 100
-// 	numCodes := 20000000
-// 	codes := make([]string, 0, batchSize)
-
-// 	timeStart := time.Now()
-// 	defer func() {
-// 		timeEnd := time.Now()
-// 		log.Printf("Time elapsed: %v\n", timeEnd.Sub(timeStart))
-// 	}()
-
-// 	for i := 0; i < numCodes; i++ {
-// 		code := generateUniqueCode(12)
-// 		codes = append(codes, code)
-
-// 		// Jika sudah mencapai batchSize, lakukan penyimpanan batch
-// 		if len(codes) == batchSize || i == numCodes-1 {
-// 			err := saveCodesInBatch(db, codes)
-// 			if err != nil {
-// 				log.Printf("Failed to save batch of codes: %v", err)
-// 				// Retry saving the failed batch
-// 				i -= len(codes)
-// 			}
-// 			log.Printf("Generated %d codes\n", i+1)
-// 			codes = codes[:0] // Kosongkan slice untuk batch berikutnya
-// 		}
-// 	}
-
-//		log.Println("Generation complete!")
-//	}
 func main() {
-	db, err := connectDB()
+	cfg := initConfigDatabase()
+	db, err := connectDB(cfg)
 	if err != nil {
-		log.Fatalln("Failed to connect to database:", err)
+		log.Fatal(err)
 	}
+	fmt.Println("Connected to database")
 	defer db.Close()
 
 	for {
 		var choice int
-		fmt.Printf("1.\tgenerate kode, \n2.\texport excel, \n0.\tuntuk keluar\nPilih: ")
+		fmt.Printf("1.\tgenerate kode \n2.\tcek jumlah data \n3. generate ke excel\n0.\tuntuk keluar\nPilih: ")
 		fmt.Scanln(&choice)
 
 		switch choice {
@@ -71,8 +44,18 @@ func main() {
 			}
 
 		case 2:
-			// Tempatkan logika untuk aksi lain di sini
-			fmt.Println("Melakukan aksi lain...")
+			result, err := getLenOfCode(db)
+			if err != nil {
+				log.Printf("Failed to get length of code: %v", err)
+			}
+
+			fmt.Printf("Jumlah Code yang sudah di generate : %v\n", result)
+		case 3:
+			err := dowonloadToExcel(db)
+			if err != nil {
+				log.Printf("Failed to download to excel: %v", err)
+			}
+
 		case 0:
 			fmt.Println("Keluar...")
 			return
@@ -82,42 +65,53 @@ func main() {
 	}
 }
 
-// func generateCode(numCodes int, db *sqlx.DB) error {
-// 	batchSize := 100
-// 	codes := make([]string, 0, batchSize)
-// 	timeStart := time.Now()
-// 	defer func() {
-// 		timeEnd := time.Now()
-// 		log.Printf("Generated %d codes\n", numCodes)
-// 		log.Printf("Time elapsed: %v\n", timeEnd.Sub(timeStart))
-// 	}()
+func getLenOfCode(db *sqlx.DB) (int, error) {
+	query := `SELECT COUNT(*) FROM generate_code`
+	var count int
 
-// 	for i := 0; i < numCodes; i++ {
-// 		code := generateUniqueCode(12)
-// 		codes = append(codes, code)
-// 		if len(codes) == batchSize || i == numCodes-1 {
-// 			err := saveCodesInBatch(db, codes)
-// 			if err != nil {
-// 				if pgErr, ok := err.(*pq.Error); ok && pgErr.Code.Name() == "unique_violation" {
-// 					log.Printf("Duplicate code detected. Generating a new one.\n")
-// 					i -= len(codes)
-// 					codes = codes[:0] // Kosongkan slice untuk batch berikutnya
-// 					continue
-// 				}
+	err := db.Get(&count, query)
+	if err != nil {
+		return 0, err
+	}
 
-// 				return err
-// 			}
-// 			log.Printf("Generated %d codes\n", i+1)
-// 			codes = codes[:0] // Kosongkan slice untuk batch berikutnya
-// 		}
-// 	}
+	return count, nil
+}
 
-// 	log.Println("Generation complete!")
-// 	return nil
-// }
+func initConfigDatabase() databaseConfig {
+	var cfg databaseConfig
+
+	fmt.Println("Konfigurasi Database")
+	fmt.Printf("Masukan host (default: localhost): ")
+	_, err := fmt.Scanln(&cfg.host)
+	if err != nil {
+		cfg.host = "103.171.182.194"
+	}
+	fmt.Printf("Masukan port (default: 5432): ")
+	_, err = fmt.Scanln(&cfg.port)
+	if err != nil {
+		cfg.port = "5444"
+	}
+	fmt.Printf("Masukan user (default: postgres): ")
+	_, err = fmt.Scanln(&cfg.user)
+	if err != nil {
+		cfg.user = "staging"
+	}
+	fmt.Printf("Masukan password (default: ): ")
+	_, err = fmt.Scanln(&cfg.pass)
+	if err != nil {
+		cfg.pass = "123PG!"
+	}
+	fmt.Printf("Masukan database (default: postgres): ")
+	_, err = fmt.Scanln(&cfg.name)
+	if err != nil {
+		cfg.name = "ujikom"
+	}
+
+	return cfg
+}
 
 func generateCode(numCodes int, db *sqlx.DB) error {
-	batchSize := 1000
+	batchSize := 100
 	numGoroutines := numCodes / batchSize
 	if numCodes%batchSize != 0 {
 		numGoroutines++
@@ -194,56 +188,27 @@ const (
 	pool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
-const (
-	dbDriver = "postgres"
-	dbUser   = "staging"
-	dbPass   = "123PG!"
-	dbName   = "ujikom"
-	dbHost   = "103.171.182.194"
-	dbPort   = "5444"
-)
+type databaseConfig struct {
+	driver string
+	user   string
+	pass   string
+	name   string
+	host   string
+	port   string
+}
 
-func connectDB() (*sqlx.DB, error) {
-	db, err := sqlx.Connect(dbDriver, "user="+dbUser+" password="+dbPass+" dbname="+dbName+" host="+dbHost+" port="+dbPort+" sslmode=disable")
+func connectDB(cfg databaseConfig) (*sqlx.DB, error) {
+	db, err := sqlx.Connect(dbDriver, "user="+cfg.user+" password="+cfg.pass+" dbname="+cfg.name+" host="+cfg.host+" port="+cfg.port+" sslmode=disable")
 	if err != nil {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(15)
+	db.SetConnMaxLifetime(60 * time.Minute)
+	db.SetConnMaxIdleTime(30 * time.Minute)
 
 	return db, nil
-}
-
-func saveCodeToDB(db *sqlx.DB, code string) error {
-	tx, err := db.Beginx()
-	if err != nil {
-		return err
-	}
-
-	// Use transaction to ensure atomicity
-	defer func() {
-		if err != nil {
-			tx.Rollback()
-			return
-		}
-		err = tx.Commit()
-		log.Printf("Saved code %s to database\n", code)
-	}()
-
-	_, err = tx.Exec("INSERT INTO generate_code (code) VALUES ($1)", code)
-	if err != nil {
-		// Handle duplicate entry error
-		if pgErr, ok := err.(*pq.Error); ok && pgErr.Code.Name() == "unique_violation" {
-			log.Printf("Duplicate code detected: %s. Generating a new one.\n", code)
-			newCode := generateUniqueCode(len(code))
-			return saveCodeToDB(db, newCode)
-		}
-		return err
-	}
-
-	return nil
 }
 
 func saveCodesInBatch(db *sqlx.DB, codes []string) error {
@@ -284,4 +249,76 @@ func generateUniqueCode(length int) string {
 		code[i] = pool[rand.Intn(len(pool))]
 	}
 	return string(code)
+}
+
+func dowonloadToExcel(db *sqlx.DB) error {
+	excelFile := excelize.NewFile()
+	sheetPage := 1
+	sheetName := fmt.Sprintf("Sheet%d", sheetPage)
+
+	// Set header
+	excelFile.SetCellValue(sheetName, "A1", "Code")
+
+	// Get data
+	pageSize := 10000
+	page := 0
+
+	var mu sync.Mutex
+	row := 2
+	prefix := "A"
+
+	for {
+		codes, err := getData(db, pageSize, page)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				break // No more data to retrieve, break the loop
+			}
+			log.Printf("Failed to get data: %v\n", err)
+			return err
+		}
+
+		for _, code := range codes {
+			if row > 1000000 {
+				sheetPage++
+				sheetName = fmt.Sprintf("Sheet%d", sheetPage)
+				excelFile.NewSheet(sheetName)
+				excelFile.SetCellValue(sheetName, "A1", "Code")
+				row = 2
+			}
+			cell := fmt.Sprintf("%s%d", prefix, row)
+			mu.Lock()
+			if err := excelFile.SetCellValue(sheetName, cell, code); err != nil {
+				log.Printf("Failed to set cell value: %v\n", err)
+				return err
+			}
+			mu.Unlock()
+			row++
+		}
+
+		if len(codes) < pageSize {
+			break
+		}
+
+		page++
+	}
+
+	mu.Lock()
+	err := excelFile.SaveAs("codes.xlsx")
+	mu.Unlock()
+	if err != nil {
+		log.Printf("Failed to write to file: %v\n", err)
+		return err
+
+	}
+
+	return nil
+}
+
+func getData(db *sqlx.DB, pageSize int, page int) ([]string, error) {
+	var codes []string
+	err := db.Select(&codes, "SELECT code FROM generate_code ORDER BY code LIMIT $1 OFFSET $2", pageSize, pageSize*page)
+	if err != nil {
+		return nil, err
+	}
+	return codes, nil
 }
