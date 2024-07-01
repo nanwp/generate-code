@@ -29,7 +29,7 @@ func main() {
 
 	for {
 		var choice int
-		fmt.Printf("1.\tgenerate kode \n2.\tcek jumlah data \n3. generate ke excel\n0.\tuntuk keluar\nPilih: ")
+		fmt.Printf("1.\tgenerate kode \n2.\tcek jumlah data \n3. \tgenerate ke excel\n0.\tuntuk keluar\nPilih: ")
 		fmt.Scanln(&choice)
 
 		switch choice {
@@ -111,8 +111,9 @@ func initConfigDatabase() databaseConfig {
 }
 
 func generateCode(numCodes int, db *sqlx.DB) error {
-	batchSize := 100
+	batchSize := 200
 	numGoroutines := numCodes / batchSize
+	// numGoroutines := 20
 	if numCodes%batchSize != 0 {
 		numGoroutines++
 	}
@@ -132,7 +133,6 @@ func generateCode(numCodes int, db *sqlx.DB) error {
 					return
 				}
 				if duplicate {
-					log.Printf("Duplicate code detected: %s. Generating a new one.\n", code)
 					j--
 					continue
 				}
@@ -185,7 +185,7 @@ func cekDuplikat(code string, db *sqlx.DB) (bool, error) {
 }
 
 const (
-	pool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	pool = "ACDEFGHJKLMNPQRTUVWXYZ234679"
 )
 
 type databaseConfig struct {
@@ -203,7 +203,7 @@ func connectDB(cfg databaseConfig) (*sqlx.DB, error) {
 		return nil, err
 	}
 
-	db.SetMaxOpenConns(100)
+	db.SetMaxOpenConns(30)
 	db.SetMaxIdleConns(15)
 	db.SetConnMaxLifetime(60 * time.Minute)
 	db.SetConnMaxIdleTime(30 * time.Minute)
