@@ -189,12 +189,11 @@ const (
 )
 
 type databaseConfig struct {
-	driver string
-	user   string
-	pass   string
-	name   string
-	host   string
-	port   string
+	user string
+	pass string
+	name string
+	host string
+	port string
 }
 
 func connectDB(cfg databaseConfig) (*sqlx.DB, error) {
