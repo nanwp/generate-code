@@ -84,27 +84,27 @@ func initConfigDatabase() databaseConfig {
 	fmt.Printf("Masukan host (default: localhost): ")
 	_, err := fmt.Scanln(&cfg.host)
 	if err != nil {
-		cfg.host = "103.171.182.194"
+		cfg.host = "localhost"
 	}
 	fmt.Printf("Masukan port (default: 5432): ")
 	_, err = fmt.Scanln(&cfg.port)
 	if err != nil {
-		cfg.port = "5444"
+		cfg.port = "5432"
 	}
 	fmt.Printf("Masukan user (default: postgres): ")
 	_, err = fmt.Scanln(&cfg.user)
 	if err != nil {
-		cfg.user = "staging"
+		cfg.user = "postgres"
 	}
 	fmt.Printf("Masukan password (default: ): ")
 	_, err = fmt.Scanln(&cfg.pass)
 	if err != nil {
-		cfg.pass = "123PG!"
+		cfg.pass = ""
 	}
 	fmt.Printf("Masukan database (default: postgres): ")
 	_, err = fmt.Scanln(&cfg.name)
 	if err != nil {
-		cfg.name = "ujikom"
+		cfg.name = "postgres"
 	}
 
 	return cfg
@@ -267,6 +267,16 @@ func dowonloadToExcel(db *sqlx.DB) error {
 	row := 2
 	prefix := "A"
 
+	totalData, err := getLenOfCode(db)
+	if err != nil {
+		log.Printf("Failed to get length of code: %v\n", err)
+		return err
+	}
+
+	fmt.Printf("Total data: %d\n", totalData)
+
+	var exportedData int
+
 	for {
 		codes, err := getData(db, pageSize, page)
 		if err != nil {
@@ -295,6 +305,9 @@ func dowonloadToExcel(db *sqlx.DB) error {
 			row++
 		}
 
+		exportedData += len(codes)
+		fmt.Printf("Exported: %d/%d data\n", exportedData, totalData)
+
 		if len(codes) < pageSize {
 			break
 		}
@@ -303,7 +316,7 @@ func dowonloadToExcel(db *sqlx.DB) error {
 	}
 
 	mu.Lock()
-	err := excelFile.SaveAs("codes.xlsx")
+	err = excelFile.SaveAs("./export/codes.xlsx")
 	mu.Unlock()
 	if err != nil {
 		log.Printf("Failed to write to file: %v\n", err)
